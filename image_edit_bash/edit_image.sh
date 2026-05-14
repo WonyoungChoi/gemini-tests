@@ -28,7 +28,8 @@ EOF
 }
 
 log() {
-  (( VERBOSE )) && printf '[verbose] %s\n' "$*" >&2
+  (( VERBOSE )) || return 0
+  printf '[verbose] %s\n' "$*" >&2
 }
 
 require_key() {
