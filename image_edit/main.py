@@ -53,7 +53,26 @@ def list_models() -> None:
         print(f"  {name:<{width}}{suffix}")
 
 
-def edit_image(image_path: Path, prompt: str, output_path: Path, model: str) -> Path:
+def build_config(image_size: str | None):
+    if not image_size:
+        return None
+    try:
+        return types.GenerateContentConfig(
+            image_config=types.ImageConfig(image_size=image_size),
+        )
+    except (AttributeError, TypeError) as exc:
+        sys.exit(
+            f"--image-size not supported by the installed google-genai version: {exc}"
+        )
+
+
+def edit_image(
+    image_path: Path,
+    prompt: str,
+    output_path: Path,
+    model: str,
+    image_size: str | None,
+) -> Path:
     if not image_path.is_file():
         sys.exit(f"Input image not found: {image_path}")
 
@@ -65,8 +84,11 @@ def edit_image(image_path: Path, prompt: str, output_path: Path, model: str) -> 
     log(f"Read input image: {image_path} ({len(image_bytes):,} bytes, mime={mime_type})")
     log(f"Prompt: {prompt!r}")
     log(f"Model:  {model}")
+    if image_size:
+        log(f"Image size: {image_size}")
 
     client = get_client()
+    config = build_config(image_size)
 
     log("Sending generateContent request...")
     start = time.monotonic()
@@ -76,6 +98,7 @@ def edit_image(image_path: Path, prompt: str, output_path: Path, model: str) -> 
             types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             prompt,
         ],
+        config=config,
     )
     log(f"Response received in {time.monotonic() - start:.2f}s")
 
@@ -134,6 +157,14 @@ def main() -> None:
         help=f"Model to use (default: {DEFAULT_MODEL}).",
     )
     parser.add_argument(
+        "-s",
+        "--image-size",
+        type=str,
+        default=None,
+        choices=["1K", "2K", "4K"],
+        help="Output image size hint (model must support it; default: model default).",
+    )
+    parser.add_argument(
         "--list-models",
         action="store_true",
         help="List image-capable models and exit.",
@@ -156,7 +187,7 @@ def main() -> None:
     if args.image is None or args.prompt is None:
         parser.error("image and prompt are required (unless --list-models is given).")
 
-    result = edit_image(args.image, args.prompt, args.output, args.model)
+    result = edit_image(args.image, args.prompt, args.output, args.model, args.image_size)
     print(f"Saved edited image to {result}")
 
 

@@ -19,6 +19,7 @@ python main.py --list-models
 옵션:
 - `-m, --model MODEL` — 사용할 모델 (기본값: `gemini-2.5-flash-image`)
 - `-o, --output PATH` — 출력 이미지 경로 (기본값: `edited.png`)
+- `-s, --image-size {1K,2K,4K}` — 출력 이미지 해상도 힌트. 모델이 지원해야 동작 (예: `gemini-2.5-flash-image`는 일반적으로 1K, 일부 모델/티어는 2K/4K 지원). 미지정 시 모델 기본값.
 - `-v, --verbose` — 진행 상황을 stderr로 출력
 - `--list-models` — 사용 가능한 image 모델 목록 출력
 

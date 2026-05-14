@@ -6,6 +6,7 @@ set -euo pipefail
 DEFAULT_MODEL="gemini-2.5-flash-image"
 API_BASE="https://generativelanguage.googleapis.com/v1beta/models"
 VERBOSE=0
+IMAGE_SIZE=""
 
 usage() {
   cat <<EOF
@@ -14,11 +15,12 @@ Usage:
   $(basename "$0") --list-models
 
 Options:
-  -m, --model MODEL   Model to use (default: ${DEFAULT_MODEL}).
-  -o, --output PATH   Output image path (default: edited.png).
-      --list-models   List image-capable models and exit.
-  -v, --verbose       Print progress messages to stderr.
-  -h, --help          Show this help.
+  -m, --model MODEL      Model to use (default: ${DEFAULT_MODEL}).
+  -o, --output PATH      Output image path (default: edited.png).
+  -s, --image-size SIZE  Output image size (1K|2K|4K, model must support it).
+      --list-models      List image-capable models and exit.
+  -v, --verbose          Print progress messages to stderr.
+  -h, --help             Show this help.
 
 Environment:
   GEMINI_API_KEY (or GOOGLE_API_KEY)  Required API key.
@@ -75,6 +77,12 @@ while [[ $# -gt 0 ]]; do
     --list-models) LIST_MODELS=1; shift ;;
     -m|--model) MODEL="$2"; shift 2 ;;
     -o|--output) OUTPUT="$2"; shift 2 ;;
+    -s|--image-size)
+      case "$2" in
+        1K|2K|4K) IMAGE_SIZE="$2" ;;
+        *) echo "Invalid --image-size: $2 (expected 1K, 2K, or 4K)" >&2; exit 1 ;;
+      esac
+      shift 2 ;;
     -v|--verbose) VERBOSE=1; shift ;;
     --) shift; POSITIONAL+=("$@"); break ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -127,11 +135,21 @@ fi
 log "Base64 size: $(wc -c < "$B64_FILE") bytes"
 
 log "Building request JSON..."
+[[ -n "$IMAGE_SIZE" ]] && log "Image size: $IMAGE_SIZE"
 jq -n \
   --arg mime "$MIME_TYPE" \
   --rawfile data "$B64_FILE" \
   --arg prompt "$PROMPT" \
-  '{contents:[{parts:[{inline_data:{mime_type:$mime,data:($data|gsub("\\s";""))}},{text:$prompt}]}]}' \
+  --arg image_size "$IMAGE_SIZE" \
+  '{
+    contents: [{parts: [
+      {inline_data: {mime_type: $mime, data: ($data|gsub("\\s";""))}},
+      {text: $prompt}
+    ]}]
+  }
+  + (if $image_size == "" then {} else
+      {generationConfig: {imageConfig: {imageSize: $image_size}}}
+    end)' \
   > "$REQUEST_FILE"
 
 log "POST ${API_BASE}/${MODEL}:generateContent"
