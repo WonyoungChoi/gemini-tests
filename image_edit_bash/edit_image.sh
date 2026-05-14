@@ -3,33 +3,93 @@
 # Requires: curl, jq, base64, file
 set -euo pipefail
 
-MODEL="gemini-2.5-flash-image"
+DEFAULT_MODEL="gemini-2.5-flash-image"
 API_BASE="https://generativelanguage.googleapis.com/v1beta/models"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <input_image> <prompt> [output_image]
+Usage:
+  $(basename "$0") [options] <input_image> <prompt> [output_image]
+  $(basename "$0") --list-models
+
+Options:
+  -m, --model MODEL   Model to use (default: ${DEFAULT_MODEL}).
+  -o, --output PATH   Output image path (default: edited.png).
+      --list-models   List image-capable models and exit.
+  -h, --help          Show this help.
 
 Environment:
   GEMINI_API_KEY (or GOOGLE_API_KEY)  Required API key.
-
-Defaults:
-  output_image  edited.png
 EOF
-  exit 1
 }
 
-[[ $# -lt 2 || $# -gt 3 ]] && usage
+require_key() {
+  if [[ -z "${API_KEY:-}" ]]; then
+    echo "GEMINI_API_KEY (or GOOGLE_API_KEY) is not set." >&2
+    exit 1
+  fi
+}
 
-INPUT="$1"
-PROMPT="$2"
-OUTPUT="${3:-edited.png}"
+list_models() {
+  require_key
+  command -v curl >/dev/null 2>&1 || { echo "Required command not found: curl" >&2; exit 1; }
+  command -v jq   >/dev/null 2>&1 || { echo "Required command not found: jq"   >&2; exit 1; }
+
+  local response
+  response="$(curl -sS -H "x-goog-api-key: ${API_KEY}" "${API_BASE}")"
+
+  local rows
+  rows="$(jq -r '
+    .models[]?
+    | select((.supportedGenerationMethods // []) | index("generateContent"))
+    | (.name | sub("^models/"; "")) as $n
+    | select($n | ascii_downcase | contains("image"))
+    | "\($n)\t\(.displayName // "")"
+  ' <<<"$response")"
+
+  if [[ -z "$rows" ]]; then
+    echo "No image-capable models found."
+    return
+  fi
+
+  echo "Available image-capable models:"
+  awk -F'\t' '{ printf "  %-45s %s\n", $1, $2 }' <<<"$rows"
+}
+
+MODEL="$DEFAULT_MODEL"
+OUTPUT="edited.png"
+LIST_MODELS=0
+POSITIONAL=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --list-models) LIST_MODELS=1; shift ;;
+    -m|--model) MODEL="$2"; shift 2 ;;
+    -o|--output) OUTPUT="$2"; shift 2 ;;
+    --) shift; POSITIONAL+=("$@"); break ;;
+    -*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+    *) POSITIONAL+=("$1"); shift ;;
+  esac
+done
 
 API_KEY="${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}"
-if [[ -z "$API_KEY" ]]; then
-  echo "GEMINI_API_KEY (or GOOGLE_API_KEY) is not set." >&2
+
+if (( LIST_MODELS )); then
+  list_models
+  exit 0
+fi
+
+if (( ${#POSITIONAL[@]} < 2 || ${#POSITIONAL[@]} > 3 )); then
+  usage >&2
   exit 1
 fi
+
+INPUT="${POSITIONAL[0]}"
+PROMPT="${POSITIONAL[1]}"
+[[ ${#POSITIONAL[@]} -eq 3 ]] && OUTPUT="${POSITIONAL[2]}"
+
+require_key
 
 if [[ ! -f "$INPUT" ]]; then
   echo "Input image not found: $INPUT" >&2
