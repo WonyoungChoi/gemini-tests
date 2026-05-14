@@ -5,6 +5,7 @@ set -euo pipefail
 
 DEFAULT_MODEL="gemini-2.5-flash-image"
 API_BASE="https://generativelanguage.googleapis.com/v1beta/models"
+VERBOSE=0
 
 usage() {
   cat <<EOF
@@ -16,11 +17,16 @@ Options:
   -m, --model MODEL   Model to use (default: ${DEFAULT_MODEL}).
   -o, --output PATH   Output image path (default: edited.png).
       --list-models   List image-capable models and exit.
+  -v, --verbose       Print progress messages to stderr.
   -h, --help          Show this help.
 
 Environment:
   GEMINI_API_KEY (or GOOGLE_API_KEY)  Required API key.
 EOF
+}
+
+log() {
+  (( VERBOSE )) && printf '[verbose] %s\n' "$*" >&2
 }
 
 require_key() {
@@ -35,8 +41,10 @@ list_models() {
   command -v curl >/dev/null 2>&1 || { echo "Required command not found: curl" >&2; exit 1; }
   command -v jq   >/dev/null 2>&1 || { echo "Required command not found: jq"   >&2; exit 1; }
 
+  log "Fetching model list from ${API_BASE}..."
   local response
   response="$(curl -sS -H "x-goog-api-key: ${API_KEY}" "${API_BASE}")"
+  log "Received $(printf '%s' "$response" | wc -c) bytes"
 
   local rows
   rows="$(jq -r '
@@ -67,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --list-models) LIST_MODELS=1; shift ;;
     -m|--model) MODEL="$2"; shift 2 ;;
     -o|--output) OUTPUT="$2"; shift 2 ;;
+    -v|--verbose) VERBOSE=1; shift ;;
     --) shift; POSITIONAL+=("$@"); break ;;
     -*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     *) POSITIONAL+=("$1"); shift ;;
@@ -106,10 +115,18 @@ REQUEST_FILE="$(mktemp)"
 trap 'rm -f "$RESPONSE_FILE" "$B64_FILE" "$REQUEST_FILE"' EXIT
 
 MIME_TYPE="$(file --brief --mime-type "$INPUT" 2>/dev/null || echo image/png)"
+INPUT_SIZE="$(wc -c < "$INPUT")"
+log "Input image: ${INPUT} (${INPUT_SIZE} bytes, mime=${MIME_TYPE})"
+log "Prompt: ${PROMPT}"
+log "Model:  ${MODEL}"
+
+log "Encoding image to base64..."
 if ! base64 -w0 "$INPUT" > "$B64_FILE" 2>/dev/null; then
   base64 "$INPUT" | tr -d '\n' > "$B64_FILE"
 fi
+log "Base64 size: $(wc -c < "$B64_FILE") bytes"
 
+log "Building request JSON..."
 jq -n \
   --arg mime "$MIME_TYPE" \
   --rawfile data "$B64_FILE" \
@@ -117,11 +134,14 @@ jq -n \
   '{contents:[{parts:[{inline_data:{mime_type:$mime,data:($data|gsub("\\s";""))}},{text:$prompt}]}]}' \
   > "$REQUEST_FILE"
 
+log "POST ${API_BASE}/${MODEL}:generateContent"
+START_TS="$(date +%s)"
 HTTP_CODE="$(curl -sS -o "$RESPONSE_FILE" -w '%{http_code}' \
   -X POST "${API_BASE}/${MODEL}:generateContent" \
   -H "x-goog-api-key: ${API_KEY}" \
   -H "Content-Type: application/json" \
   --data-binary "@${REQUEST_FILE}")"
+log "Response received in $(( $(date +%s) - START_TS ))s (HTTP ${HTTP_CODE}, $(wc -c < "$RESPONSE_FILE") bytes)"
 
 if [[ "$HTTP_CODE" != "200" ]]; then
   echo "API request failed (HTTP $HTTP_CODE):" >&2
@@ -143,7 +163,9 @@ if [[ -z "$IMAGE_DATA" ]]; then
 fi
 
 mkdir -p "$(dirname "$OUTPUT")"
+log "Decoding image and writing to ${OUTPUT}..."
 printf '%s' "$IMAGE_DATA" | base64 -d > "$OUTPUT"
+log "Wrote $(wc -c < "$OUTPUT") bytes"
 echo "Saved edited image to $OUTPUT"
 
 PROMPT_TOKENS="$(jq -r '.usageMetadata.promptTokenCount // 0' "$RESPONSE_FILE")"

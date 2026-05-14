@@ -12,9 +12,15 @@
 export GEMINI_API_KEY=your_api_key_here
 chmod +x edit_image.sh
 
-./edit_image.sh [-m MODEL] [-o OUTPUT] <input_image> "<edit prompt>" [output_image]
+./edit_image.sh [-m MODEL] [-o OUTPUT] [-v] <input_image> "<edit prompt>" [output_image]
 ./edit_image.sh --list-models
 ```
+
+옵션:
+- `-m, --model MODEL` — 사용할 모델 (기본값: `gemini-2.5-flash-image`)
+- `-o, --output PATH` — 출력 이미지 경로 (기본값: `edited.png`)
+- `-v, --verbose` — 진행 상황을 stderr로 출력
+- `--list-models` — 사용 가능한 image 모델 목록 출력
 
 예시:
 

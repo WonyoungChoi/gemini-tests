@@ -4,12 +4,20 @@ import argparse
 import mimetypes
 import os
 import sys
+import time
 from pathlib import Path
 
 from google import genai
 from google.genai import types
 
 DEFAULT_MODEL = "gemini-2.5-flash-image"
+
+VERBOSE = False
+
+
+def log(msg: str) -> None:
+    if VERBOSE:
+        print(f"[verbose] {msg}", file=sys.stderr, flush=True)
 
 
 def get_client() -> genai.Client:
@@ -21,6 +29,7 @@ def get_client() -> genai.Client:
 
 def list_models() -> None:
     client = get_client()
+    log("Fetching model list from API...")
     image_models = []
     for model in client.models.list():
         methods = getattr(model, "supported_actions", None) or getattr(
@@ -52,24 +61,34 @@ def edit_image(image_path: Path, prompt: str, output_path: Path, model: str) -> 
     if mime_type is None:
         mime_type = "image/png"
 
+    image_bytes = image_path.read_bytes()
+    log(f"Read input image: {image_path} ({len(image_bytes):,} bytes, mime={mime_type})")
+    log(f"Prompt: {prompt!r}")
+    log(f"Model:  {model}")
+
     client = get_client()
 
+    log("Sending generateContent request...")
+    start = time.monotonic()
     response = client.models.generate_content(
         model=model,
         contents=[
-            types.Part.from_bytes(data=image_path.read_bytes(), mime_type=mime_type),
+            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             prompt,
         ],
     )
+    log(f"Response received in {time.monotonic() - start:.2f}s")
 
     saved_path: Path | None = None
     candidates = response.candidates or []
+    log(f"Candidates: {len(candidates)}")
     for candidate in candidates:
         for part in candidate.content.parts:
             inline = getattr(part, "inline_data", None)
             if inline and inline.data and saved_path is None:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 output_path.write_bytes(inline.data)
+                log(f"Wrote {len(inline.data):,} bytes to {output_path}")
                 saved_path = output_path
             elif getattr(part, "text", None):
                 print(part.text, file=sys.stderr)
@@ -119,7 +138,16 @@ def main() -> None:
         action="store_true",
         help="List image-capable models and exit.",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Print progress messages to stderr.",
+    )
     args = parser.parse_args()
+
+    global VERBOSE
+    VERBOSE = args.verbose
 
     if args.list_models:
         list_models()
