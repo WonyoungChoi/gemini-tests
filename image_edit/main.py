@@ -34,18 +34,38 @@ def edit_image(image_path: Path, prompt: str, output_path: Path) -> Path:
         ],
     )
 
+    saved_path: Path | None = None
     candidates = response.candidates or []
     for candidate in candidates:
         for part in candidate.content.parts:
             inline = getattr(part, "inline_data", None)
-            if inline and inline.data:
+            if inline and inline.data and saved_path is None:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
                 output_path.write_bytes(inline.data)
-                return output_path
-            if getattr(part, "text", None):
+                saved_path = output_path
+            elif getattr(part, "text", None):
                 print(part.text, file=sys.stderr)
 
-    sys.exit("No image returned from the model.")
+    print_token_usage(response)
+
+    if saved_path is None:
+        sys.exit("No image returned from the model.")
+    return saved_path
+
+
+def print_token_usage(response) -> None:
+    usage = getattr(response, "usage_metadata", None)
+    if usage is None:
+        return
+    prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+    cached_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+    output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+    non_cached_tokens = max(prompt_tokens - cached_tokens, 0)
+
+    print("Token usage:")
+    print(f"  Cached Input Token:     {cached_tokens}")
+    print(f"  Non-cached Input Token: {non_cached_tokens}")
+    print(f"  Output Token:           {output_tokens}")
 
 
 def main() -> None:
