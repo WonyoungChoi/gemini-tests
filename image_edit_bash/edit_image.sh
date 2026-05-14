@@ -40,23 +40,28 @@ for cmd in curl jq base64; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "Required command not found: $cmd" >&2; exit 1; }
 done
 
-MIME_TYPE="$(file --brief --mime-type "$INPUT" 2>/dev/null || echo image/png)"
-IMAGE_B64="$(base64 -w0 "$INPUT" 2>/dev/null || base64 "$INPUT" | tr -d '\n')"
-
-REQUEST_BODY="$(jq -n \
-  --arg mime "$MIME_TYPE" \
-  --arg data "$IMAGE_B64" \
-  --arg prompt "$PROMPT" \
-  '{contents:[{parts:[{inline_data:{mime_type:$mime,data:$data}},{text:$prompt}]}]}')"
-
 RESPONSE_FILE="$(mktemp)"
-trap 'rm -f "$RESPONSE_FILE"' EXIT
+B64_FILE="$(mktemp)"
+REQUEST_FILE="$(mktemp)"
+trap 'rm -f "$RESPONSE_FILE" "$B64_FILE" "$REQUEST_FILE"' EXIT
+
+MIME_TYPE="$(file --brief --mime-type "$INPUT" 2>/dev/null || echo image/png)"
+if ! base64 -w0 "$INPUT" > "$B64_FILE" 2>/dev/null; then
+  base64 "$INPUT" | tr -d '\n' > "$B64_FILE"
+fi
+
+jq -n \
+  --arg mime "$MIME_TYPE" \
+  --rawfile data "$B64_FILE" \
+  --arg prompt "$PROMPT" \
+  '{contents:[{parts:[{inline_data:{mime_type:$mime,data:($data|gsub("\\s";""))}},{text:$prompt}]}]}' \
+  > "$REQUEST_FILE"
 
 HTTP_CODE="$(curl -sS -o "$RESPONSE_FILE" -w '%{http_code}' \
   -X POST "${API_BASE}/${MODEL}:generateContent" \
   -H "x-goog-api-key: ${API_KEY}" \
   -H "Content-Type: application/json" \
-  -d "$REQUEST_BODY")"
+  --data-binary "@${REQUEST_FILE}")"
 
 if [[ "$HTTP_CODE" != "200" ]]; then
   echo "API request failed (HTTP $HTTP_CODE):" >&2
