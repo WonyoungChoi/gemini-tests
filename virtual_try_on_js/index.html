@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gemini Virtual Try-On</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Gemini Virtual Try-On</h1>
+      <span class="subtitle">인물 + 의상 → 착용 이미지 4장 생성</span>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>API Key</h2>
+          <label class="field">
+            <span>GEMINI_API_KEY</span>
+            <input
+              id="apiKey"
+              type="password"
+              autocomplete="off"
+              placeholder="AIza..."
+            />
+          </label>
+          <label class="checkbox">
+            <input id="rememberKey" type="checkbox" />
+            <span>이 브라우저에 저장 (localStorage)</span>
+          </label>
+        </section>
+
+        <section class="panel">
+          <h2>모델 선택</h2>
+          <label class="field">
+            <span>Model</span>
+            <select id="model">
+              <option value="virtual-try-on-preview-08-26" selected>
+                virtual-try-on-preview-08-26
+              </option>
+            </select>
+          </label>
+          <button id="listModelsBtn" type="button" class="secondary">
+            사용 가능한 모델 불러오기
+          </button>
+        </section>
+
+        <section class="panel">
+          <h2>생성 옵션</h2>
+          <label class="field">
+            <span>Sample count (1–4)</span>
+            <select id="sampleCount">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Base steps</span>
+            <input
+              id="baseSteps"
+              type="number"
+              min="1"
+              max="100"
+              placeholder="(모델 기본값)"
+            />
+            <span class="hint">미지정 시 모델 기본값. 값이 클수록 품질↑/시간↑.</span>
+          </label>
+
+          <label class="field">
+            <span>Person generation</span>
+            <select id="personGeneration">
+              <option value="">(모델 기본값)</option>
+              <option value="allow_adult">allow_adult</option>
+              <option value="allow_all">allow_all</option>
+              <option value="dont_allow">dont_allow</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Safety setting</span>
+            <select id="safetySetting">
+              <option value="">(모델 기본값)</option>
+              <option value="block_low_and_above">block_low_and_above</option>
+              <option value="block_medium_and_above">block_medium_and_above</option>
+              <option value="block_only_high">block_only_high</option>
+              <option value="block_none">block_none</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Output MIME</span>
+            <select id="outputMimeType">
+              <option value="">(모델 기본값)</option>
+              <option value="image/png">image/png</option>
+              <option value="image/jpeg">image/jpeg</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Seed (선택)</span>
+            <input id="seed" type="number" placeholder="비워두면 랜덤" />
+          </label>
+
+          <label class="checkbox">
+            <input id="addWatermark" type="checkbox" />
+            <span>워터마크 추가 (addWatermark)</span>
+          </label>
+        </section>
+
+        <section class="panel">
+          <h2>옵션</h2>
+          <label class="checkbox">
+            <input id="verbose" type="checkbox" checked />
+            <span>Verbose 로그</span>
+          </label>
+          <button id="clearLogBtn" type="button" class="secondary">
+            로그 지우기
+          </button>
+        </section>
+      </aside>
+
+      <section class="content">
+        <form id="tryOnForm" class="panel form">
+          <h2>입력</h2>
+          <div class="input-grid">
+            <label class="field">
+              <span>인물 이미지</span>
+              <input id="personFile" type="file" accept="image/*" required />
+            </label>
+            <label class="field">
+              <span>의상 이미지</span>
+              <input id="productFile" type="file" accept="image/*" required />
+            </label>
+          </div>
+
+          <div class="image-grid two">
+            <figure class="image-card">
+              <figcaption>
+                <strong>인물</strong>
+                <span id="personInfo" class="meta"></span>
+              </figcaption>
+              <div class="image-wrap" id="personWrap">
+                <p class="placeholder">파일을 선택하면 표시됩니다.</p>
+              </div>
+            </figure>
+            <figure class="image-card">
+              <figcaption>
+                <strong>의상</strong>
+                <span id="productInfo" class="meta"></span>
+              </figcaption>
+              <div class="image-wrap" id="productWrap">
+                <p class="placeholder">파일을 선택하면 표시됩니다.</p>
+              </div>
+            </figure>
+          </div>
+
+          <div class="actions">
+            <button id="submitBtn" type="submit">생성</button>
+            <span id="status" class="status"></span>
+          </div>
+        </form>
+
+        <section class="panel results">
+          <h2>결과</h2>
+          <div id="resultsGrid" class="image-grid four">
+            <p class="placeholder">아직 결과가 없습니다.</p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <section class="logpanel">
+      <header>
+        <h2>Verbose Log</h2>
+        <span id="logCount" class="meta"></span>
+      </header>
+      <pre id="log"></pre>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
