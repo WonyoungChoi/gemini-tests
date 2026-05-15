@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gemini Video Gen (Veo)</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Gemini Video Gen (Veo)</h1>
+      <span class="subtitle">정적 페이지에서 Veo로 동영상 생성</span>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>API Key</h2>
+          <label class="field">
+            <span>GEMINI_API_KEY</span>
+            <input
+              id="apiKey"
+              type="password"
+              autocomplete="off"
+              placeholder="AIza..."
+            />
+          </label>
+          <label class="checkbox">
+            <input id="rememberKey" type="checkbox" />
+            <span>이 브라우저에 저장 (localStorage)</span>
+          </label>
+        </section>
+
+        <section class="panel">
+          <h2>모델 선택</h2>
+          <label class="field">
+            <span>Model</span>
+            <select id="model">
+              <option value="veo-3.0-generate-001" selected>
+                veo-3.0-generate-001
+              </option>
+              <option value="veo-3.0-fast-generate-001">
+                veo-3.0-fast-generate-001
+              </option>
+              <option value="veo-2.0-generate-001">veo-2.0-generate-001</option>
+            </select>
+          </label>
+          <button id="listModelsBtn" type="button" class="secondary">
+            사용 가능한 모델 불러오기
+          </button>
+          <p class="hint">
+            video / veo 키워드가 포함된 모델만 필터링합니다.
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>생성 옵션</h2>
+
+          <label class="field">
+            <span>Aspect ratio</span>
+            <select id="aspectRatio">
+              <option value="16:9" selected>16:9</option>
+              <option value="9:16">9:16</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Resolution</span>
+            <select id="resolution">
+              <option value="">(모델 기본값)</option>
+              <option value="720p">720p</option>
+              <option value="1080p" selected>1080p</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Duration (sec)</span>
+            <input
+              id="duration"
+              type="number"
+              min="2"
+              max="10"
+              step="1"
+              value="8"
+            />
+          </label>
+
+          <label class="field">
+            <span>Sample count</span>
+            <input
+              id="sampleCount"
+              type="number"
+              min="1"
+              max="4"
+              step="1"
+              value="1"
+            />
+          </label>
+
+          <label class="field">
+            <span>Person generation</span>
+            <select id="personGeneration">
+              <option value="">(모델 기본값)</option>
+              <option value="allow_adult" selected>allow_adult</option>
+              <option value="allow_all">allow_all</option>
+              <option value="dont_allow">dont_allow</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Negative prompt (선택)</span>
+            <input id="negativePrompt" type="text" placeholder="예: blurry, low quality" />
+          </label>
+
+          <label class="field">
+            <span>Seed (선택)</span>
+            <input id="seed" type="number" placeholder="비워두면 랜덤" />
+          </label>
+        </section>
+
+        <section class="panel">
+          <h2>폴링 / 로그</h2>
+          <label class="field">
+            <span>폴링 주기 (sec)</span>
+            <input
+              id="pollInterval"
+              type="number"
+              min="2"
+              max="60"
+              step="1"
+              value="5"
+            />
+          </label>
+          <label class="field">
+            <span>최대 대기 (sec)</span>
+            <input
+              id="pollTimeout"
+              type="number"
+              min="30"
+              max="1800"
+              step="10"
+              value="600"
+            />
+          </label>
+          <label class="checkbox">
+            <input id="verbose" type="checkbox" checked />
+            <span>Verbose 로그</span>
+          </label>
+          <button id="clearLogBtn" type="button" class="secondary">
+            로그 지우기
+          </button>
+        </section>
+      </aside>
+
+      <section class="content">
+        <form id="genForm" class="panel form">
+          <h2>동영상 생성</h2>
+
+          <label class="field">
+            <span>Prompt</span>
+            <textarea
+              id="prompt"
+              rows="4"
+              placeholder="예: a cinematic shot of a cat surfing a wave at sunset"
+              required
+            ></textarea>
+          </label>
+
+          <label class="field">
+            <span>입력 이미지 (선택, image-to-video)</span>
+            <input id="imageFile" type="file" accept="image/*" />
+          </label>
+
+          <div class="image-card" id="inputPreviewCard" hidden>
+            <figcaption>
+              <strong>입력 이미지</strong>
+              <span id="inputInfo" class="meta"></span>
+            </figcaption>
+            <div class="image-wrap" id="inputWrap"></div>
+          </div>
+
+          <div class="actions">
+            <button id="submitBtn" type="submit">제출</button>
+            <button id="cancelBtn" type="button" class="secondary" hidden>
+              중단
+            </button>
+            <span id="status" class="status"></span>
+          </div>
+        </form>
+
+        <section class="panel results">
+          <h2>결과</h2>
+          <div id="videosGrid" class="videos-grid">
+            <p class="placeholder">아직 결과가 없습니다.</p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <section class="logpanel">
+      <header>
+        <h2>Verbose Log</h2>
+        <span id="logCount" class="meta"></span>
+      </header>
+      <pre id="log"></pre>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
