@@ -243,25 +243,74 @@ function findUsageMetadata(obj, depth) {
 
 function printTokenUsage(result) {
   const usage = findUsageMetadata(result, 0);
-  if (!usage) {
-    logVerbose("Token usage: (응답에 usageMetadata 없음)");
-    return;
+  if (usage) {
+    const promptTokens = usage.promptTokenCount || 0;
+    const cachedTokens = usage.cachedContentTokenCount || 0;
+    const outputTokens = usage.candidatesTokenCount || 0;
+    const totalTokens = usage.totalTokenCount || 0;
+    const nonCached = Math.max(promptTokens - cachedTokens, 0);
+
+    logInfo("Token usage:");
+    logInfo("  Cached Input Token:     " + cachedTokens);
+    logInfo("  Non-cached Input Token: " + nonCached);
+    logInfo("  Output Token:           " + outputTokens);
+    if (totalTokens) logInfo("  Total Token:            " + totalTokens);
+
+    const details = usage.promptTokensDetails || usage.modalityTokenCounts;
+    if (Array.isArray(details) && details.length) {
+      logVerbose("Token modalities: " + JSON.stringify(details));
+    }
+  } else {
+    logVerbose(
+      "Token usage: 응답에 usageMetadata 없음 (Veo는 토큰이 아닌 비디오 길이 기준 과금)."
+    );
   }
-  const promptTokens = usage.promptTokenCount || 0;
-  const cachedTokens = usage.cachedContentTokenCount || 0;
-  const outputTokens = usage.candidatesTokenCount || 0;
-  const totalTokens = usage.totalTokenCount || 0;
-  const nonCached = Math.max(promptTokens - cachedTokens, 0);
+}
 
-  logInfo("Token usage:");
-  logInfo("  Cached Input Token:     " + cachedTokens);
-  logInfo("  Non-cached Input Token: " + nonCached);
-  logInfo("  Output Token:           " + outputTokens);
-  if (totalTokens) logInfo("  Total Token:            " + totalTokens);
+function printVideoUsage(videos, params, durations) {
+  if (!videos.length) return;
+  const sampleCount = videos.length;
+  const requested = params.durationSeconds || null;
+  const resolution = params.resolution || "(default)";
+  const ar = params.aspectRatio || "(default)";
 
-  const details = usage.promptTokensDetails || usage.modalityTokenCounts;
-  if (Array.isArray(details) && details.length) {
-    logVerbose("Token modalities: " + JSON.stringify(details));
+  const totalActual = durations
+    .filter((d) => Number.isFinite(d) && d > 0)
+    .reduce((a, b) => a + b, 0);
+
+  logInfo("Video usage:");
+  logInfo("  Samples:                " + sampleCount);
+  logInfo("  Aspect ratio:           " + ar);
+  logInfo("  Resolution:             " + resolution);
+  if (requested) {
+    logInfo("  Requested duration:     " + requested + "s × " + sampleCount);
+  }
+  if (totalActual > 0) {
+    logInfo(
+      "  Actual total duration:  " +
+        totalActual.toFixed(2) +
+        "s (" +
+        durations.map((d) => (Number.isFinite(d) ? d.toFixed(2) : "?")).join(", ") +
+        ")"
+    );
+  } else {
+    logVerbose(
+      "  Actual duration unavailable (URI download/metadata still pending)."
+    );
+  }
+}
+
+function summarizeKeys(obj, prefix, maxDepth) {
+  if (!obj || typeof obj !== "object" || maxDepth < 0) return;
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    const path = prefix ? prefix + "." + k : k;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      logVerbose("  " + path + ": {" + Object.keys(v).join(", ") + "}");
+      summarizeKeys(v, path, maxDepth - 1);
+    } else if (Array.isArray(v)) {
+      logVerbose("  " + path + ": [" + v.length + "]");
+    }
   }
 }
 
@@ -332,7 +381,7 @@ async function downloadVideoBlob(uri, apiKey) {
   throw lastErr || new Error("download failed");
 }
 
-function renderVideos(videos, apiKey) {
+function renderVideos(videos, apiKey, onSampleMetadata) {
   els.videosGrid.innerHTML = "";
   if (!videos.length) {
     els.videosGrid.innerHTML =
@@ -379,6 +428,15 @@ function renderVideos(videos, apiKey) {
               video.videoHeight
             }, ${video.duration.toFixed(2)}s, ${formatBytes(blob.size)}`
           );
+          if (typeof onSampleMetadata === "function") {
+            onSampleMetadata(idx, {
+              width: video.videoWidth,
+              height: video.videoHeight,
+              duration: video.duration,
+              bytes: blob.size,
+              mime: v.mime,
+            });
+          }
         },
         { once: true }
       );
@@ -579,9 +637,35 @@ async function handleSubmit(evt) {
       throw new Error("결과에 비디오 없음");
     }
     logOk(`Received ${videos.length} video(s).`);
-    renderVideos(videos, key);
+
+    logVerbose("Operation result structure:");
+    summarizeKeys(result, "", 3);
 
     printTokenUsage(result);
+
+    const sampleMeta = new Array(videos.length).fill(null);
+    let metaSeen = 0;
+    renderVideos(videos, key, (idx, info) => {
+      sampleMeta[idx] = info;
+      metaSeen += 1;
+      if (metaSeen === videos.length) {
+        printVideoUsage(
+          videos,
+          parameters,
+          sampleMeta.map((m) => (m ? m.duration : NaN))
+        );
+      }
+    });
+
+    setTimeout(() => {
+      if (metaSeen < videos.length) {
+        printVideoUsage(
+          videos,
+          parameters,
+          sampleMeta.map((m) => (m ? m.duration : NaN))
+        );
+      }
+    }, 8000);
 
     const totalElapsed = ((performance.now() - start) / 1000).toFixed(1);
     setStatus(`완료 (${totalElapsed}s)`, "ok");
