@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gemini Image Edit</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Gemini Image Edit</h1>
+      <span class="subtitle">정적 페이지에서 Gemini API로 이미지 편집</span>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>API Key</h2>
+          <label class="field">
+            <span>GEMINI_API_KEY</span>
+            <input
+              id="apiKey"
+              type="password"
+              autocomplete="off"
+              placeholder="AIza..."
+            />
+          </label>
+          <label class="checkbox">
+            <input id="rememberKey" type="checkbox" />
+            <span>이 브라우저에 저장 (localStorage)</span>
+          </label>
+        </section>
+
+        <section class="panel">
+          <h2>모델 선택</h2>
+          <label class="field">
+            <span>Model</span>
+            <select id="model">
+              <option value="gemini-2.5-flash-image" selected>
+                gemini-2.5-flash-image
+              </option>
+              <option value="gemini-2.5-flash-image-preview">
+                gemini-2.5-flash-image-preview
+              </option>
+            </select>
+          </label>
+          <button id="listModelsBtn" type="button" class="secondary">
+            사용 가능한 모델 불러오기
+          </button>
+        </section>
+
+        <section class="panel">
+          <h2>이미지 크기</h2>
+          <label class="field">
+            <span>Image size</span>
+            <select id="imageSize">
+              <option value="">(모델 기본값)</option>
+              <option value="1K">1K</option>
+              <option value="2K">2K</option>
+              <option value="4K">4K</option>
+            </select>
+          </label>
+          <p class="hint">
+            모델이 지원해야 적용됩니다. 미지정 시 모델 기본값을 사용합니다.
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>옵션</h2>
+          <label class="checkbox">
+            <input id="verbose" type="checkbox" checked />
+            <span>Verbose 로그</span>
+          </label>
+          <button id="clearLogBtn" type="button" class="secondary">
+            로그 지우기
+          </button>
+        </section>
+      </aside>
+
+      <section class="content">
+        <form id="editForm" class="panel form">
+          <h2>이미지 편집</h2>
+          <label class="field">
+            <span>이미지 파일</span>
+            <input id="imageFile" type="file" accept="image/*" required />
+          </label>
+
+          <label class="field">
+            <span>Prompt</span>
+            <textarea
+              id="prompt"
+              rows="4"
+              placeholder="예: 이 고양이가 우주복을 입게 해줘"
+              required
+            ></textarea>
+          </label>
+
+          <div class="actions">
+            <button id="submitBtn" type="submit">제출</button>
+            <span id="status" class="status"></span>
+          </div>
+        </form>
+
+        <section class="panel results">
+          <h2>결과</h2>
+          <div class="image-grid">
+            <figure class="image-card">
+              <figcaption>
+                <strong>원본</strong>
+                <span id="originalInfo" class="meta"></span>
+              </figcaption>
+              <div class="image-wrap" id="originalWrap">
+                <p class="placeholder">파일을 선택하면 여기에 표시됩니다.</p>
+              </div>
+            </figure>
+
+            <figure class="image-card">
+              <figcaption>
+                <strong>편집 결과</strong>
+                <span id="editedInfo" class="meta"></span>
+              </figcaption>
+              <div class="image-wrap" id="editedWrap">
+                <p class="placeholder">아직 결과가 없습니다.</p>
+              </div>
+              <div class="download-row">
+                <a id="downloadLink" class="secondary" hidden download="edited.png"
+                  >다운로드</a
+                >
+              </div>
+            </figure>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <section class="logpanel">
+      <header>
+        <h2>Verbose Log</h2>
+        <span id="logCount" class="meta"></span>
+      </header>
+      <pre id="log"></pre>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
