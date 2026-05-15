@@ -11,12 +11,9 @@ const els = {
   model: $("model"),
   listModelsBtn: $("listModelsBtn"),
   sampleCount: $("sampleCount"),
-  baseSteps: $("baseSteps"),
-  personGeneration: $("personGeneration"),
-  safetySetting: $("safetySetting"),
-  outputMimeType: $("outputMimeType"),
+  imageSize: $("imageSize"),
+  temperature: $("temperature"),
   seed: $("seed"),
-  addWatermark: $("addWatermark"),
   verbose: $("verbose"),
   clearLogBtn: $("clearLogBtn"),
   form: $("tryOnForm"),
@@ -26,6 +23,7 @@ const els = {
   personWrap: $("personWrap"),
   productInfo: $("productInfo"),
   productWrap: $("productWrap"),
+  prompt: $("prompt"),
   submitBtn: $("submitBtn"),
   status: $("status"),
   resultsGrid: $("resultsGrid"),
@@ -178,14 +176,9 @@ async function listModels() {
       .filter((m) => {
         const methods =
           m.supportedActions || m.supportedGenerationMethods || [];
-        const hasPredict = methods.includes("predict");
-        const name = (m.name || "").replace(/^models\//, "").toLowerCase();
-        return (
-          hasPredict &&
-          (name.includes("try-on") ||
-            name.includes("tryon") ||
-            name.includes("virtual"))
-        );
+        if (!methods.includes("generateContent")) return false;
+        const name = (m.name || "").replace(/^models\//, "");
+        return name.toLowerCase().includes("image");
       })
       .map((m) => ({
         name: (m.name || "").replace(/^models\//, ""),
@@ -194,7 +187,7 @@ async function listModels() {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     if (!models.length) {
-      logWarn("virtual try-on 모델을 찾을 수 없습니다. (preview 모델은 access 필요할 수 있음)");
+      logWarn("이미지 생성 모델을 찾을 수 없습니다.");
       setStatus("모델 없음", "warn");
       return;
     }
@@ -210,7 +203,7 @@ async function listModels() {
     if ([...els.model.options].some((o) => o.value === prev)) {
       els.model.value = prev;
     }
-    logOk("Loaded " + models.length + " try-on model(s).");
+    logOk("Loaded " + models.length + " image-capable models.");
     for (const m of models) {
       logInfo("  " + m.name + (m.display ? "  " + m.display : ""));
     }
@@ -221,132 +214,202 @@ async function listModels() {
   }
 }
 
-function buildParameters() {
-  const p = {};
-  const sc = parseInt(els.sampleCount.value, 10);
-  if (!Number.isNaN(sc) && sc > 0) p.sampleCount = sc;
-
-  const bs = parseInt(els.baseSteps.value, 10);
-  if (!Number.isNaN(bs) && bs > 0) p.baseSteps = bs;
-
-  const pg = els.personGeneration.value;
-  if (pg) p.personGeneration = pg;
-
-  const ss = els.safetySetting.value;
-  if (ss) p.safetySetting = ss;
-
-  const om = els.outputMimeType.value;
-  if (om) p.outputMimeType = om;
-
-  const seedVal = els.seed.value.trim();
-  if (seedVal) {
-    const s = parseInt(seedVal, 10);
-    if (!Number.isNaN(s)) p.seed = s;
-  }
-
-  p.addWatermark = !!els.addWatermark.checked;
-  return p;
-}
-
-function buildRequestBody(personB64, personMime, productB64, productMime, params) {
-  return {
-    instances: [
+function buildRequestBody(
+  personMime,
+  personB64,
+  productMime,
+  productB64,
+  prompt,
+  imageSize,
+  temperature,
+  seed
+) {
+  const body = {
+    contents: [
       {
-        personImage: {
-          image: { bytesBase64Encoded: personB64, mimeType: personMime },
-        },
-        productImages: [
-          {
-            image: { bytesBase64Encoded: productB64, mimeType: productMime },
-          },
+        parts: [
+          { text: "Image 1 (person):" },
+          { inline_data: { mime_type: personMime, data: personB64 } },
+          { text: "Image 2 (clothing):" },
+          { inline_data: { mime_type: productMime, data: productB64 } },
+          { text: prompt },
         ],
       },
     ],
-    parameters: params,
   };
+
+  const generationConfig = {};
+  if (imageSize) {
+    generationConfig.imageConfig = { imageSize };
+  }
+  if (Number.isFinite(temperature)) {
+    generationConfig.temperature = temperature;
+  }
+  if (Number.isFinite(seed)) {
+    generationConfig.seed = seed;
+  }
+  if (Object.keys(generationConfig).length) {
+    body.generationConfig = generationConfig;
+  }
+  return body;
 }
 
-function extractPredictionImages(data) {
-  const out = [];
-  const preds = data.predictions || data.generatedImages || [];
-  if (!Array.isArray(preds)) return out;
-  for (const p of preds) {
-    if (!p) continue;
-    const inner = p.image || p;
-    const b64 =
-      inner.bytesBase64Encoded ||
-      inner.imageBytes ||
-      inner.data ||
-      p.bytesBase64Encoded ||
-      p.imageBytes ||
-      null;
-    const mime =
-      inner.mimeType || inner.mime_type || p.mimeType || "image/png";
-    const reason = p.raiFilteredReason || p.filteredReason || null;
-    if (b64) {
-      out.push({ b64, mime });
-    } else if (reason) {
-      logWarn("Sample filtered: " + reason);
+function extractInlineImage(data) {
+  const candidates = data.candidates || [];
+  for (const c of candidates) {
+    const parts = (c.content && c.content.parts) || [];
+    for (const p of parts) {
+      const inline = p.inlineData || p.inline_data;
+      if (inline && inline.data) {
+        return {
+          mimeType: inline.mimeType || inline.mime_type || "image/png",
+          data: inline.data,
+        };
+      }
     }
   }
-  return out;
+  return null;
 }
 
-function renderResults(images) {
-  els.resultsGrid.innerHTML = "";
-  if (!images.length) {
-    els.resultsGrid.innerHTML =
-      '<p class="placeholder">결과 이미지가 없습니다.</p>';
-    return;
+function collectTextParts(data) {
+  const out = [];
+  for (const c of data.candidates || []) {
+    for (const p of (c.content && c.content.parts) || []) {
+      if (p.text) out.push(p.text);
+    }
   }
+  return out.join("\n");
+}
 
-  images.forEach((img, idx) => {
-    const blob = base64ToBlob(img.b64, img.mime);
-    const url = URL.createObjectURL(blob);
+function sumUsage(usages) {
+  const total = {
+    prompt: 0,
+    cached: 0,
+    output: 0,
+  };
+  for (const u of usages) {
+    if (!u) continue;
+    total.prompt += u.promptTokenCount || 0;
+    total.cached += u.cachedContentTokenCount || 0;
+    total.output += u.candidatesTokenCount || 0;
+  }
+  return total;
+}
 
+function printAggregateUsage(usages) {
+  const usable = usages.filter(Boolean);
+  if (!usable.length) return;
+  const t = sumUsage(usable);
+  const nonCached = Math.max(t.prompt - t.cached, 0);
+  logInfo("Token usage (sum of " + usable.length + " calls):");
+  logInfo("  Cached Input Token:     " + t.cached);
+  logInfo("  Non-cached Input Token: " + nonCached);
+  logInfo("  Output Token:           " + t.output);
+}
+
+function renderPlaceholders(n) {
+  els.resultsGrid.innerHTML = "";
+  const cards = [];
+  for (let i = 0; i < n; i++) {
     const card = document.createElement("figure");
     card.className = "image-card";
 
     const cap = document.createElement("figcaption");
     const title = document.createElement("strong");
-    title.textContent = "Sample " + (idx + 1);
+    title.textContent = "Sample " + (i + 1);
     const meta = document.createElement("span");
     meta.className = "meta";
+    meta.textContent = "대기 중...";
     cap.appendChild(title);
     cap.appendChild(meta);
     card.appendChild(cap);
 
     const wrap = document.createElement("div");
     wrap.className = "image-wrap";
-    const im = new Image();
-    im.src = url;
-    im.onload = () => {
-      meta.textContent =
-        `${img.mime} · ${formatBytes(blob.size)} · ` +
-        `${im.naturalWidth}×${im.naturalHeight}`;
-      logVerbose(
-        `Sample ${idx + 1}: ${im.naturalWidth}x${im.naturalHeight}, ` +
-          `${formatBytes(blob.size)}, mime=${img.mime}`
-      );
-    };
-    wrap.appendChild(im);
+    const ph = document.createElement("p");
+    ph.className = "placeholder";
+    ph.textContent = "생성 중...";
+    wrap.appendChild(ph);
     card.appendChild(wrap);
 
     const row = document.createElement("div");
     row.className = "download-row";
-    const dl = document.createElement("a");
-    dl.className = "secondary";
-    dl.href = url;
-    const ext = img.mime.includes("jpeg")
-      ? "jpg"
-      : img.mime.split("/")[1] || "png";
-    dl.download = `try_on_${idx + 1}.${ext}`;
-    dl.textContent = "다운로드";
-    row.appendChild(dl);
     card.appendChild(row);
 
     els.resultsGrid.appendChild(card);
+    cards.push({ card, meta, wrap, row });
+  }
+  return cards;
+}
+
+function fillCardImage(slot, b64, mime, idx) {
+  const blob = base64ToBlob(b64, mime);
+  const url = URL.createObjectURL(blob);
+  slot.wrap.innerHTML = "";
+  const im = new Image();
+  im.src = url;
+  im.onload = () => {
+    slot.meta.textContent =
+      `${mime} · ${formatBytes(blob.size)} · ` +
+      `${im.naturalWidth}×${im.naturalHeight}`;
+    logVerbose(
+      `Sample ${idx + 1}: ${im.naturalWidth}x${im.naturalHeight}, ` +
+        `${formatBytes(blob.size)}, mime=${mime}`
+    );
+  };
+  slot.wrap.appendChild(im);
+
+  const dl = document.createElement("a");
+  dl.className = "secondary";
+  dl.href = url;
+  const ext = mime.includes("jpeg") ? "jpg" : mime.split("/")[1] || "png";
+  dl.download = `try_on_${idx + 1}.${ext}`;
+  dl.textContent = "다운로드";
+  slot.row.innerHTML = "";
+  slot.row.appendChild(dl);
+}
+
+function fillCardError(slot, msg) {
+  slot.wrap.innerHTML = "";
+  const ph = document.createElement("p");
+  ph.className = "placeholder";
+  ph.textContent = "실패: " + msg;
+  slot.wrap.appendChild(ph);
+  slot.meta.textContent = "error";
+}
+
+async function callOnce(idx, url, key, body) {
+  const start = performance.now();
+  logVerbose(`Sample ${idx + 1}: POST started`);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
   });
+  const text = await res.text();
+  const elapsed = ((performance.now() - start) / 1000).toFixed(2);
+  logVerbose(
+    `Sample ${idx + 1}: response in ${elapsed}s (HTTP ${res.status}, ${
+      text.length
+    } bytes)`
+  );
+  if (!res.ok) {
+    logError(`Sample ${idx + 1} API 응답 오류:\n` + text);
+    throw new Error("HTTP " + res.status);
+  }
+  const data = JSON.parse(text);
+  const textParts = collectTextParts(data);
+  if (textParts) logInfo(`Sample ${idx + 1} text: ${textParts}`);
+
+  const inline = extractInlineImage(data);
+  if (!inline) {
+    logError(`Sample ${idx + 1} 응답에 이미지가 없습니다:\n` + text);
+    throw new Error("이미지 없음");
+  }
+  return { inline, usage: data.usageMetadata || null, elapsed };
 }
 
 async function handleSubmit(evt) {
@@ -361,17 +424,38 @@ async function handleSubmit(evt) {
     if (!personFile) throw new Error("인물 이미지를 선택하세요.");
     if (!productFile) throw new Error("의상 이미지를 선택하세요.");
 
-    const model = els.model.value.trim() || "virtual-try-on-preview-08-26";
+    const prompt = els.prompt.value.trim();
+    if (!prompt) throw new Error("프롬프트를 입력하세요.");
+
+    const model = els.model.value.trim() || "gemini-2.5-flash-image";
+    const sampleCount = Math.max(
+      1,
+      Math.min(4, parseInt(els.sampleCount.value, 10) || 1)
+    );
+    const imageSize = els.imageSize.value || "";
+
+    const tempVal = els.temperature.value.trim();
+    const temperature = tempVal ? parseFloat(tempVal) : NaN;
+
+    const seedVal = els.seed.value.trim();
+    const seed = seedVal ? parseInt(seedVal, 10) : NaN;
+
     const personMime = personFile.type || "image/png";
     const productMime = productFile.type || "image/png";
 
-    logVerbose("Model:  " + model);
+    logVerbose("Model:          " + model);
+    logVerbose("Sample count:   " + sampleCount);
+    if (imageSize) logVerbose("Image size:     " + imageSize);
+    if (Number.isFinite(temperature))
+      logVerbose("Temperature:    " + temperature);
+    if (Number.isFinite(seed)) logVerbose("Seed:           " + seed);
     logVerbose(
       `Person:  ${personFile.name} (${personFile.size} bytes, ${personMime})`
     );
     logVerbose(
       `Product: ${productFile.name} (${productFile.size} bytes, ${productMime})`
     );
+    logVerbose("Prompt: " + JSON.stringify(prompt));
 
     logVerbose("Encoding images to base64...");
     const [personB64, productB64] = await Promise.all([
@@ -382,61 +466,63 @@ async function handleSubmit(evt) {
       `Base64 lengths: person=${personB64.length}, product=${productB64.length}`
     );
 
-    const parameters = buildParameters();
-    logVerbose("parameters: " + JSON.stringify(parameters));
-
-    const body = buildRequestBody(
-      personB64,
-      personMime,
-      productB64,
-      productMime,
-      parameters
-    );
-
     const url =
-      API_BASE + "/models/" + encodeURIComponent(model) + ":predict";
-    logVerbose("POST " + url);
+      API_BASE + "/models/" + encodeURIComponent(model) + ":generateContent";
+    logVerbose("POST " + url + " × " + sampleCount + " (parallel)");
+
+    const slots = renderPlaceholders(sampleCount);
 
     const start = performance.now();
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": key,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    const elapsed = ((performance.now() - start) / 1000).toFixed(2);
-    logVerbose(
-      `Response in ${elapsed}s (HTTP ${res.status}, ${text.length} bytes)`
-    );
-
-    if (!res.ok) {
-      logError("API 응답 오류:\n" + text);
-      throw new Error("HTTP " + res.status);
-    }
-
-    const data = JSON.parse(text);
-
-    const safety =
-      data.raiMediaFilteredCount ?? data.filteredMediaCount ?? null;
-    const reasons = data.raiMediaFilteredReasons || data.filterReasons;
-    if (safety || (Array.isArray(reasons) && reasons.length)) {
-      logWarn(
-        `Safety filter: filtered=${safety}, reasons=${JSON.stringify(reasons)}`
+    const promises = [];
+    for (let i = 0; i < sampleCount; i++) {
+      const perCallSeed = Number.isFinite(seed) ? seed + i : NaN;
+      const body = buildRequestBody(
+        personMime,
+        personB64,
+        productMime,
+        productB64,
+        prompt,
+        imageSize,
+        temperature,
+        perCallSeed
+      );
+      promises.push(
+        callOnce(i, url, key, body)
+          .then((r) => ({ ok: true, idx: i, ...r }))
+          .catch((e) => ({ ok: false, idx: i, error: e }))
       );
     }
 
-    const images = extractPredictionImages(data);
-    if (!images.length) {
-      logError("응답에 이미지가 없습니다:\n" + text);
-      throw new Error("이미지가 반환되지 않음");
-    }
-    logOk(`Received ${images.length} image(s).`);
-    renderResults(images);
+    const results = await Promise.all(promises);
+    const totalElapsed = ((performance.now() - start) / 1000).toFixed(2);
 
-    setStatus(`완료 (${elapsed}s, ${images.length}장)`, "ok");
+    let succeeded = 0;
+    const usages = [];
+    for (const r of results) {
+      if (r.ok) {
+        fillCardImage(slots[r.idx], r.inline.data, r.inline.mimeType, r.idx);
+        usages.push(r.usage);
+        succeeded += 1;
+      } else {
+        fillCardError(slots[r.idx], r.error.message);
+      }
+    }
+
+    printAggregateUsage(usages);
+
+    if (succeeded === 0) {
+      throw new Error("모든 샘플 생성 실패");
+    }
+    if (succeeded < sampleCount) {
+      logWarn(`일부 실패: ${succeeded}/${sampleCount} 성공`);
+      setStatus(
+        `완료 (${totalElapsed}s, ${succeeded}/${sampleCount}장)`,
+        "warn"
+      );
+    } else {
+      logOk(`완료: ${succeeded}장 생성 (${totalElapsed}s)`);
+      setStatus(`완료 (${totalElapsed}s, ${succeeded}장)`, "ok");
+    }
   } catch (err) {
     logError("오류: " + err.message);
     setStatus(err.message, "error");
@@ -480,7 +566,8 @@ function init() {
   });
   logInfo("준비 완료. API Key 입력 후 인물/의상 이미지를 선택하세요.");
   logInfo(
-    "참고: Virtual Try-On은 preview 모델이며, 일부 계정/리전에서만 사용 가능할 수 있습니다."
+    "Nano Banana(gemini-2.5-flash-image)는 호출당 이미지 1장을 반환하므로, " +
+      "Sample count만큼 병렬 호출합니다."
   );
 }
 

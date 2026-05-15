@@ -3,13 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Gemini Virtual Try-On</title>
+    <title>Gemini Virtual Try-On (Nano Banana)</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <header class="topbar">
       <h1>Gemini Virtual Try-On</h1>
-      <span class="subtitle">인물 + 의상 → 착용 이미지 4장 생성</span>
+      <span class="subtitle">
+        인물 + 의상 → 착용 이미지 N장 생성 (Nano Banana / gemini-2.5-flash-image)
+      </span>
     </header>
 
     <main class="layout">
@@ -36,8 +38,11 @@
           <label class="field">
             <span>Model</span>
             <select id="model">
-              <option value="virtual-try-on-preview-08-26" selected>
-                virtual-try-on-preview-08-26
+              <option value="gemini-2.5-flash-image" selected>
+                gemini-2.5-flash-image (Nano Banana)
+              </option>
+              <option value="gemini-2.5-flash-image-preview">
+                gemini-2.5-flash-image-preview
               </option>
             </select>
           </label>
@@ -56,58 +61,39 @@
               <option value="3">3</option>
               <option value="4" selected>4</option>
             </select>
+            <span class="hint">병렬로 N번 호출합니다 (각 호출당 1장).</span>
           </label>
 
           <label class="field">
-            <span>Base steps</span>
+            <span>Image size</span>
+            <select id="imageSize">
+              <option value="">(모델 기본값)</option>
+              <option value="1K">1K</option>
+              <option value="2K">2K</option>
+              <option value="4K">4K</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Temperature (선택)</span>
             <input
-              id="baseSteps"
+              id="temperature"
               type="number"
-              min="1"
-              max="100"
+              step="0.05"
+              min="0"
+              max="2"
               placeholder="(모델 기본값)"
             />
-            <span class="hint">미지정 시 모델 기본값. 값이 클수록 품질↑/시간↑.</span>
-          </label>
-
-          <label class="field">
-            <span>Person generation</span>
-            <select id="personGeneration">
-              <option value="">(모델 기본값)</option>
-              <option value="allow_adult">allow_adult</option>
-              <option value="allow_all">allow_all</option>
-              <option value="dont_allow">dont_allow</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Safety setting</span>
-            <select id="safetySetting">
-              <option value="">(모델 기본값)</option>
-              <option value="block_low_and_above">block_low_and_above</option>
-              <option value="block_medium_and_above">block_medium_and_above</option>
-              <option value="block_only_high">block_only_high</option>
-              <option value="block_none">block_none</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Output MIME</span>
-            <select id="outputMimeType">
-              <option value="">(모델 기본값)</option>
-              <option value="image/png">image/png</option>
-              <option value="image/jpeg">image/jpeg</option>
-            </select>
+            <span class="hint">값이 클수록 샘플 간 다양성↑.</span>
           </label>
 
           <label class="field">
             <span>Seed (선택)</span>
             <input id="seed" type="number" placeholder="비워두면 랜덤" />
-          </label>
-
-          <label class="checkbox">
-            <input id="addWatermark" type="checkbox" />
-            <span>워터마크 추가 (addWatermark)</span>
+            <span class="hint">
+              지정 시 동일 prompt+이미지에서 같은 결과가 나옵니다.
+              N장 다양성을 위해 비워두는 것을 권장.
+            </span>
           </label>
         </section>
 
@@ -157,6 +143,15 @@
               </div>
             </figure>
           </div>
+
+          <label class="field">
+            <span>Prompt</span>
+            <textarea
+              id="prompt"
+              rows="4"
+            >Image 1 shows a person, and Image 2 shows a clothing item. Generate a photorealistic image of the same person from Image 1 wearing the clothing from Image 2. Keep the person's face, identity, hair, body shape, pose, and background exactly as in Image 1. Make the clothing fit naturally with realistic folds, lighting, and shadows that match the original scene. Do not change the person.</textarea>
+            <span class="hint">기본 프롬프트를 수정하면 스타일/포즈/배경 변형도 지시할 수 있습니다.</span>
+          </label>
 
           <div class="actions">
             <button id="submitBtn" type="submit">생성</button>
