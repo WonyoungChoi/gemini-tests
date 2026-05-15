@@ -226,6 +226,45 @@ function buildParameters() {
   return p;
 }
 
+function findUsageMetadata(obj, depth) {
+  if (!obj || typeof obj !== "object" || depth > 4) return null;
+  if (obj.usageMetadata && typeof obj.usageMetadata === "object") {
+    return obj.usageMetadata;
+  }
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (v && typeof v === "object") {
+      const found = findUsageMetadata(v, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function printTokenUsage(result) {
+  const usage = findUsageMetadata(result, 0);
+  if (!usage) {
+    logVerbose("Token usage: (응답에 usageMetadata 없음)");
+    return;
+  }
+  const promptTokens = usage.promptTokenCount || 0;
+  const cachedTokens = usage.cachedContentTokenCount || 0;
+  const outputTokens = usage.candidatesTokenCount || 0;
+  const totalTokens = usage.totalTokenCount || 0;
+  const nonCached = Math.max(promptTokens - cachedTokens, 0);
+
+  logInfo("Token usage:");
+  logInfo("  Cached Input Token:     " + cachedTokens);
+  logInfo("  Non-cached Input Token: " + nonCached);
+  logInfo("  Output Token:           " + outputTokens);
+  if (totalTokens) logInfo("  Total Token:            " + totalTokens);
+
+  const details = usage.promptTokensDetails || usage.modalityTokenCounts;
+  if (Array.isArray(details) && details.length) {
+    logVerbose("Token modalities: " + JSON.stringify(details));
+  }
+}
+
 function extractVideos(operationResponse) {
   const out = [];
   if (!operationResponse) return out;
@@ -541,6 +580,8 @@ async function handleSubmit(evt) {
     }
     logOk(`Received ${videos.length} video(s).`);
     renderVideos(videos, key);
+
+    printTokenUsage(result);
 
     const totalElapsed = ((performance.now() - start) / 1000).toFixed(1);
     setStatus(`완료 (${totalElapsed}s)`, "ok");
