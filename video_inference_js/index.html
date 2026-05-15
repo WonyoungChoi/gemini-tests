@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gemini Video Inference</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Gemini Video Inference</h1>
+      <span class="subtitle">정적 페이지에서 Gemini API로 동영상 내용 분석</span>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <section class="panel">
+          <h2>API Key</h2>
+          <label class="field">
+            <span>GEMINI_API_KEY</span>
+            <input
+              id="apiKey"
+              type="password"
+              autocomplete="off"
+              placeholder="AIza..."
+            />
+          </label>
+          <label class="checkbox">
+            <input id="rememberKey" type="checkbox" />
+            <span>이 브라우저에 저장 (localStorage)</span>
+          </label>
+        </section>
+
+        <section class="panel">
+          <h2>모델 선택</h2>
+          <label class="field">
+            <span>Model</span>
+            <select id="model">
+              <option value="gemini-2.5-flash" selected>
+                gemini-2.5-flash
+              </option>
+              <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+              <option value="gemini-2.5-flash-lite">
+                gemini-2.5-flash-lite
+              </option>
+              <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+            </select>
+          </label>
+          <button id="listModelsBtn" type="button" class="secondary">
+            사용 가능한 모델 불러오기
+          </button>
+          <p class="hint">
+            `generateContent`를 지원하는 모델 중 video 입력이 가능한 후보를
+            필터링합니다.
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>업로드 방식</h2>
+          <label class="field">
+            <span>Upload mode</span>
+            <select id="uploadMode">
+              <option value="inline" selected>inline (≤ 20MB)</option>
+              <option value="files">Files API (큰 파일용)</option>
+            </select>
+          </label>
+          <p class="hint">
+            20MB 이하면 base64 인라인이 빠릅니다. 그 이상은 Files API 권장.
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>생성 옵션</h2>
+
+          <label class="field">
+            <span>Temperature</span>
+            <input
+              id="temperature"
+              type="number"
+              min="0"
+              max="2"
+              step="0.05"
+              value="0.4"
+            />
+          </label>
+
+          <label class="field">
+            <span>Top P</span>
+            <input
+              id="topP"
+              type="number"
+              min="0"
+              max="1"
+              step="0.05"
+              placeholder="기본값"
+            />
+          </label>
+
+          <label class="field">
+            <span>Top K</span>
+            <input id="topK" type="number" min="1" step="1" placeholder="기본값" />
+          </label>
+
+          <label class="field">
+            <span>Max output tokens</span>
+            <input
+              id="maxOutputTokens"
+              type="number"
+              min="1"
+              step="1"
+              value="2048"
+            />
+          </label>
+
+          <label class="field">
+            <span>Thinking budget (2.5)</span>
+            <input
+              id="thinkingBudget"
+              type="number"
+              step="1"
+              placeholder="-1=auto, 0=off"
+            />
+          </label>
+
+          <label class="field">
+            <span>Media resolution</span>
+            <select id="mediaResolution">
+              <option value="" selected>(모델 기본값)</option>
+              <option value="MEDIA_RESOLUTION_LOW">LOW (66 tok/frame)</option>
+              <option value="MEDIA_RESOLUTION_MEDIUM">MEDIUM</option>
+              <option value="MEDIA_RESOLUTION_HIGH">HIGH (256 tok/frame)</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>FPS (video metadata)</span>
+            <input
+              id="fps"
+              type="number"
+              min="0.1"
+              max="30"
+              step="0.1"
+              placeholder="기본 1 fps"
+            />
+          </label>
+        </section>
+
+        <section class="panel">
+          <h2>옵션</h2>
+          <label class="checkbox">
+            <input id="verbose" type="checkbox" checked />
+            <span>Verbose 로그</span>
+          </label>
+          <button id="clearLogBtn" type="button" class="secondary">
+            로그 지우기
+          </button>
+        </section>
+      </aside>
+
+      <section class="content">
+        <form id="inferForm" class="panel form">
+          <h2>동영상 분석</h2>
+
+          <label class="field">
+            <span>동영상 파일 (≈ 10초 권장)</span>
+            <input
+              id="videoFile"
+              type="file"
+              accept="video/*"
+              required
+            />
+          </label>
+
+          <div class="video-card" id="inputPreviewCard" hidden>
+            <figcaption>
+              <strong>입력 동영상</strong>
+              <span id="inputInfo" class="meta"></span>
+            </figcaption>
+            <div class="video-wrap" id="inputWrap"></div>
+          </div>
+
+          <label class="field">
+            <span>Prompt</span>
+            <textarea
+              id="prompt"
+              rows="4"
+              placeholder="예: 이 영상을 자세히 분석해서 장면별 내용, 등장 인물/객체, 카메라 움직임, 분위기를 요약해줘."
+              required
+            >이 영상의 내용을 자세히 분석해서 다음을 알려줘:
+1) 한 줄 요약
+2) 장면별 진행
+3) 등장 인물/객체와 행동
+4) 카메라 움직임 / 촬영 스타일
+5) 분위기 및 추정 장르</textarea>
+          </label>
+
+          <div class="actions">
+            <button id="submitBtn" type="submit">분석 시작</button>
+            <span id="status" class="status"></span>
+          </div>
+        </form>
+
+        <section class="panel results">
+          <h2>분석 결과</h2>
+          <div id="resultWrap" class="result-wrap">
+            <p class="placeholder">아직 결과가 없습니다.</p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <section class="logpanel">
+      <header>
+        <h2>Verbose Log</h2>
+        <span id="logCount" class="meta"></span>
+      </header>
+      <pre id="log"></pre>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>
